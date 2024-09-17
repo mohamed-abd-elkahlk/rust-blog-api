@@ -1,5 +1,4 @@
-use blog_api::date_time_format;
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -8,6 +7,5 @@ struct Comment {
     post_id: i32,
     author_id: i32,
     body: String,
-    #[serde(with = "date_time_format")]
-    created_at: NaiveDateTime,
+    pub created_at: DateTime<Utc>,
 }

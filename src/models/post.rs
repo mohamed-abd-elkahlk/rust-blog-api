@@ -1,5 +1,4 @@
-use blog_api::date_time_format;
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::prelude::FromRow;
 
@@ -9,6 +8,5 @@ struct Post {
     author_id: i32,
     title: String,
     body: String,
-    #[serde(with = "date_time_format")]
-    created_at: NaiveDateTime,
+    pub created_at: DateTime<Utc>,
 }
