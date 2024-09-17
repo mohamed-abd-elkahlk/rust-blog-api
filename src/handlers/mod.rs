@@ -1,4 +1,4 @@
+pub mod auth_handlers;
 pub mod comment;
-pub mod error;
 pub mod post;
 pub mod user;
