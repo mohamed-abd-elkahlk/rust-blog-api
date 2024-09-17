@@ -20,13 +20,13 @@ pub async fn db_conncetion() -> Db {
         );
         CREATE TABLE IF NOT EXISTS users (
            id INT AUTO_INCREMENT PRIMARY KEY,
-            email TEXT NOT NULL UNIQUE,
-            username TEXT NOT NULL,
+            email VARCHAR(255) NOT NULL UNIQUE,
+            username VARCHAR(255) NOT NULL,
             password_hash TEXT NOT NULL,
             created_at DATETIME NOT NULL
         );
         CREATE TABLE IF NOT EXISTS comments (
-            id INT AUTO_INCREMENT PRIMARY KEY,
+            id INT PRIMARY KEY AUTO_INCREMENT,
             post_id INT NOT NULL,
             author_id INt NOT NULL,
             body TEXT NOT NULL,
