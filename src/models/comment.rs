@@ -12,6 +12,5 @@ pub struct Comment {
 }
 #[derive(Deserialize)]
 pub struct CommentBody {
-    pub id: i64,
     pub body: String,
 }

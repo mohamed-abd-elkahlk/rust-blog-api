@@ -103,38 +103,46 @@ pub async fn create_comment(
     // Return a success message
     Ok(Json(comment))
 }
-
-#[put("/comment/<post_id>", data = "<comment>")]
+#[put("/post/<post_id>/comment/<comment_id>", data = "<comment>")]
 pub async fn update_comment(
     db_pool: &rocket::State<Db>,
     user: JwtAuth,
     post_id: i64,
+    comment_id: i64,
     comment: Json<CommentBody>,
 ) -> Result<Json<String>, status::Custom<Json<ResponseError>>> {
-    // check if post exits
-    sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM posts WHERE id = ?)", post_id)
-        .fetch_one(db_pool.inner())
-        .await
-        .map_err(|e| match e {
-            sqlx::Error::RowNotFound => status::Custom(
-                Status::NotFound,
-                Json(ResponseError {
-                    error: "Post not found".to_string(),
-                }),
-            ),
-            _ => status::Custom(
-                Status::InternalServerError,
-                Json(ResponseError {
-                    error: "Database Error".to_string(),
-                }),
-            ),
-        })?;
+    // Check if the post exists
+    let post_exists =
+        sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM posts WHERE id = ?)", post_id)
+            .fetch_one(db_pool.inner())
+            .await
+            .map_err(|_| {
+                status::Custom(
+                    Status::InternalServerError,
+                    Json(ResponseError {
+                        error: "Database Error".to_string(),
+                    }),
+                )
+            })?;
+
+    // Convert the result to a boolean
+    if post_exists == 0 {
+        return Err(status::Custom(
+            Status::NotFound,
+            Json(ResponseError {
+                error: "Post not found".to_string(),
+            }),
+        ));
+    }
+
+    // Extract author ID from JWT claims
     let author_id = user.claims.sub.parse::<i64>().unwrap();
 
-    sqlx::query!(
-        "UPDATE comments SET  body = ? WHERE id = ? AND author_id = ?",
+    // Update the comment for the given comment_id and author_id
+    let result = sqlx::query!(
+        "UPDATE comments SET body = ? WHERE id = ? AND author_id = ?",
         comment.body,
-        comment.id,
+        comment_id,
         author_id
     )
     .execute(db_pool.inner())
@@ -148,34 +156,50 @@ pub async fn update_comment(
         )
     })?;
 
-    Ok(Json("comment updated.".to_string()))
+    // Check if the update affected any rows (i.e., if the comment existed and was updated)
+    if result.rows_affected() == 0 {
+        return Err(status::Custom(
+            Status::NotFound,
+            Json(ResponseError {
+                error: "Comment not found or you're not authorized to update it.".to_string(),
+            }),
+        ));
+    }
+
+    Ok(Json("Comment updated.".to_string()))
 }
 
 #[delete("/comment/<comment_id>")]
 pub async fn delete_comment(
     db_pool: &rocket::State<Db>,
+    user: JwtAuth,
     comment_id: i64,
 ) -> Result<status::Custom<()>, status::Custom<Json<ResponseError>>> {
-    // Try to delete the comment and handle errors
-    sqlx::query!("DELETE FROM comments WHERE id = ?", comment_id)
-        .execute(db_pool.inner())
-        .await
-        .map_err(|e| match e {
-            sqlx::Error::RowNotFound => status::Custom(
-                Status::NotFound,
-                Json(ResponseError {
-                    error: format!("No comment with this ID: {comment_id}"),
-                }),
-            ),
-            _ => status::Custom(
-                Status::InternalServerError,
-                Json(ResponseError {
-                    error: "Database Error".to_string(),
-                }),
-            ),
-        })?;
+    let author_id = user.claims.sub.parse::<i64>().unwrap();
+    let result = sqlx::query!(
+        "DELETE FROM comments WHERE id = ? AND author_id = ? ",
+        comment_id,
+        author_id
+    )
+    .execute(db_pool.inner())
+    .await
+    .map_err(|_| {
+        status::Custom(
+            Status::InternalServerError,
+            Json(ResponseError {
+                error: "Database Error".to_string(),
+            }),
+        )
+    })?;
+    if result.rows_affected() == 0 {
+        return Err(status::Custom(
+            Status::NotFound,
+            Json(ResponseError {
+                error: "Comment not found or you're not authorized to delete it.".to_string(),
+            }),
+        ));
+    }
 
-    // Return 204 No Content on successful deletion
     Ok(status::Custom(Status::NoContent, ()))
 }
 
