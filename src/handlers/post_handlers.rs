@@ -7,7 +7,8 @@ use crate::{
     guards::jwt_guard::JwtAuth,
     models::{
         error::ResponseError,
-        post::{NewPost, Post, UpdatedPost},
+        post::{NewPost, Pagination, Post, UpdatedPost},
+        PagedResponse,
     },
 };
 
@@ -52,21 +53,43 @@ pub async fn get_post(
     user: JwtAuth,
     id: i64,
 ) -> Result<Json<Post>, status::Custom<Json<ResponseError>>> {
+    // Step 1: Parse the author's ID safely from JWT claims
+    let author_id = match user.claims.sub.parse::<i64>() {
+        Ok(id) => id,
+        Err(_) => {
+            return Err(status::Custom(
+                Status::BadRequest,
+                Json(ResponseError {
+                    error: "Invalid User ID".to_string(),
+                }),
+            ))
+        }
+    };
+
+    // Step 2: Query the database to check if the post exists
     let record = sqlx::query!(
-        "SELECT * FROM posts WHERE id = ? and author_id = ?",
+        "SELECT * FROM posts WHERE id = ? AND author_id = ?",
         id,
-        user.claims.sub.parse::<i64>().unwrap()
+        author_id
     )
     .fetch_one(db_pool.inner())
     .await
-    .map_err(|_| {
-        status::Custom(
+    .map_err(|e| match e {
+        sqlx::Error::RowNotFound => status::Custom(
+            Status::NotFound,
+            Json(ResponseError {
+                error: "Post not found".to_string(),
+            }),
+        ),
+        _ => status::Custom(
             Status::InternalServerError,
             Json(ResponseError {
                 error: "Database Error".to_string(),
             }),
-        )
+        ),
     })?;
+
+    // Step 3: Convert timestamp to DateTime and construct the Post object
     let created_at = timestamp_to_datetime!(record).unwrap();
     let post = Post {
         id: record.id as i32,
@@ -75,6 +98,8 @@ pub async fn get_post(
         title: record.title,
         created_at,
     };
+
+    // Step 4: Return the post as a JSON response
     Ok(Json(post))
 }
 
@@ -209,4 +234,78 @@ pub async fn delete_post(
 
     // Return success message
     Ok(Json("Post successfully deleted".to_string()))
+}
+
+// get all posts with paganation
+
+#[get("/post?<pagination..>")]
+pub async fn get_posts(
+    db_pool: &rocket::State<Db>,
+    pagination: Option<Pagination>,
+) -> Result<Json<PagedResponse<Post>>, status::Custom<Json<ResponseError>>> {
+    let page = pagination.as_ref().map_or(1, |p| p.page.unwrap_or(1)) as i64;
+    let size = pagination.as_ref().map_or(10, |p| p.size.unwrap_or(10)) as i64;
+
+    // Ensure that the size is at least 1 to avoid division by zero
+    let size = size.max(1);
+    let offset = (page - 1) * size;
+
+    // Fetch the paginated posts
+    let query = sqlx::query!("SELECT * FROM posts LIMIT ? OFFSET ?", size, offset)
+        .fetch_all(db_pool.inner())
+        .await
+        .map_err(|_| {
+            status::Custom(
+                Status::InternalServerError,
+                Json(ResponseError {
+                    error: "Error while fetching data from the database".to_string(),
+                }),
+            )
+        })?;
+
+    // Count the total number of posts
+    let total_items = sqlx::query_scalar!("SELECT COUNT(*) FROM posts")
+        .fetch_one(db_pool.inner())
+        .await
+        .map_err(|_| {
+            status::Custom(
+                Status::InternalServerError,
+                Json(ResponseError {
+                    error: "Error while fetching the count from the database".to_string(),
+                }),
+            )
+        })?;
+
+    // Calculate total pages
+    let total_pages = if total_items > 0 {
+        (total_items + size - 1) / size // Ceiling division to get total pages
+    } else {
+        0
+    };
+
+    // Map over the fetched rows to create Post instances
+    let posts: Vec<Post> = query
+        .iter()
+        .map(|row| {
+            // Adjust if you're using NaiveDateTime or OffsetDateTime
+            let created_at: DateTime<Utc> =
+                timestamp_to_datetime!(row).expect("Failed to parse date");
+            Post {
+                id: row.id,
+                author_id: row.author_id,
+                title: row.title.clone(),
+                body: row.body.clone(),
+                created_at,
+            }
+        })
+        .collect();
+
+    // Return the paginated response
+    Ok(Json(PagedResponse {
+        current_page: page,
+        page_size: size,
+        total_items,
+        total_pages,
+        data: posts,
+    }))
 }

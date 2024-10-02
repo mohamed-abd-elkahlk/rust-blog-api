@@ -25,3 +25,9 @@ pub struct Post {
     pub body: String,
     pub created_at: DateTime<Utc>,
 }
+
+#[derive(FromForm, Deserialize)]
+pub struct Pagination {
+    pub page: Option<usize>,
+    pub size: Option<usize>,
+}

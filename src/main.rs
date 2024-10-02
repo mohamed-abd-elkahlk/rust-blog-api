@@ -17,5 +17,6 @@ async fn rocket() -> Rocket<Build> {
     let db_pool: Db = db_conncetion().await;
     rocket::build()
         .manage(db_pool)
+        .mount("/", routes::posts_routes::posts_routes())
         .mount("/auth", routes::auth_routes::get_auth_routes())
 }

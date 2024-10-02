@@ -14,7 +14,7 @@ impl<'r> FromRequest<'r> for JwtAuth {
         let cookies: &CookieJar<'_> = request.cookies();
 
         // Retrieve the JWT token from the "token" cookie
-        if let Some(cookie) = cookies.get("token") {
+        if let Some(cookie) = cookies.get("auth_token") {
             let token = cookie.value();
 
             // Verify the JWT and extract claims
